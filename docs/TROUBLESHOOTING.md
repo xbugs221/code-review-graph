@@ -32,6 +32,7 @@ The graph uses SQLite with WAL mode. If you see lock errors:
 - First embedding run downloads the model (~90MB, one time)
 
 ## MCP server won't start
-- Verify Python path in `.mcp.json` points to the venv
-- Check `python -m code_review_graph.main` runs without errors
-- Ensure all dependencies are installed: `pip install -e .`
+- Verify `uv` is installed (`uv --version`; install with `pip install uv` or `brew install uv`)
+- Check that `uvx code-review-graph serve` runs without errors
+- If using a custom `.mcp.json`, ensure it uses `"command": "uvx"` with `"args": ["code-review-graph", "serve"]`
+- Re-run `code-review-graph init` to regenerate the config

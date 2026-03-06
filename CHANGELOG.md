@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.4] - 2026-03-06
+
+### Changed
+- **Portable MCP config**: `init` now generates `uvx`-based `.mcp.json` instead of absolute Python paths — works on any machine with `uv` installed
+- Removed `_safe_path` symlink workaround (no longer needed with `uvx`)
+
 ## [1.6.3] - 2026-03-06
 
 ### Added

@@ -7,7 +7,7 @@
 [![CI](https://github.com/tirth8205/code-review-graph/actions/workflows/ci.yml/badge.svg)](https://github.com/tirth8205/code-review-graph/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg?style=flat-square)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-green.svg?style=flat-square)](https://modelcontextprotocol.io/)
-[![v1.6.3](https://img.shields.io/badge/version-1.6.3-purple.svg?style=flat-square)](#)
+[![v1.6.4](https://img.shields.io/badge/version-1.6.4-purple.svg?style=flat-square)](#)
 
 ---
 
@@ -56,7 +56,9 @@ pip install code-review-graph
 code-review-graph init    # Set up .mcp.json for Claude Code
 ```
 
-Works on Python 3.10+. With semantic search (optional):
+Requires Python 3.10+ and [`uv`](https://docs.astral.sh/uv/) (the `init` command generates a `uvx`-based MCP config). Install `uv` with `pip install uv` or `brew install uv`.
+
+With semantic search (optional):
 
 ```bash
 pip install code-review-graph[embeddings]

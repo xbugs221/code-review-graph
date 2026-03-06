@@ -2,6 +2,10 @@
 
 ## Shipped
 
+### v1.6.4
+- Portable `uvx`-based MCP config — no absolute paths, works on any machine with `uv`
+- Removed `_safe_path` symlink workaround (superseded by `uvx`)
+
 ### v1.6.3
 - SessionStart hook: Claude Code prefers graph tools over full codebase scans automatically
 - plugin.json corrected for official marketplace submission

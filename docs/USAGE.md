@@ -1,6 +1,6 @@
 # Code Review Graph — User Guide
 
-**Version:** v1.6.3 (Mar 6, 2026)
+**Version:** v1.6.4 (Mar 6, 2026)
 
 ## Quick Installation (30 seconds)
 

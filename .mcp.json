@@ -1,9 +1,8 @@
 {
   "mcpServers": {
     "code-review-graph": {
-      "command": "python",
-      "args": ["-m", "code_review_graph.main"],
-      "cwd": "."
+      "command": "uvx",
+      "args": ["code-review-graph", "serve"]
     }
   }
 }

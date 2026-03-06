@@ -1,6 +1,10 @@
 # Features
 
-## v1.6.3 (Current)
+## v1.6.4 (Current)
+- **Portable MCP config**: `init` now generates `uvx`-based `.mcp.json` — no absolute paths, works on any machine with `uv` installed
+- **Removed symlink workaround**: The `_safe_path` helper for spaces-in-paths is no longer needed with `uvx`
+
+## v1.6.3
 - **SessionStart hook**: Claude Code automatically prefers graph MCP tools over full codebase scans at session start
 - **Marketplace ready**: plugin.json corrected for official Claude Code plugin marketplace submission
 - **README cleanup**: Removed screenshot placeholders
@@ -16,7 +20,7 @@
 - **Accessibility**: ARIA labels throughout D3.js visualization
 
 ## v1.5.3
-- **Spaces-in-path handling**: `init` auto-creates symlinks when project paths contain spaces (macOS iCloud, etc.)
+- **Spaces-in-path handling**: *(superseded in v1.6.4 by `uvx`-based config)* Previously used symlinks for spaces in paths
 - **No git required**: `build`, `status`, `visualize`, `watch` now work on any directory without git
 - **Plugin ready**: Skills registered in plugin.json, SKILL.md frontmatter fixed
 - **File organization**: Generated files moved into `.code-review-graph/` directory (auto-created `.gitignore`, legacy migration)
