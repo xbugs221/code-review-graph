@@ -22,16 +22,7 @@ Stop re-scanning your entire codebase on every review. `code-review-graph` build
 | Token-heavy (entire codebase) | **5-10x fewer tokens** per review |
 | Manual "what else does this affect?" | Graph-powered dependency tracing |
 
-### See It in Action
-
-| Interactive Graph Visualization | Blast-Radius Review |
-|:---:|:---:|
-| ![Graph Visualization](docs/assets/graph-visualization.png) | ![Review Delta](docs/assets/review-delta.png) |
-| *Collapsible, searchable D3.js graph with edge-type toggles* | *Impact analysis showing changed + affected nodes* |
-
----
-
-## ✨ Features
+## Features
 
 - **Incremental updates** — Only re-parses files that changed since last build. Subsequent updates take <2s.
 - **12+ languages** — Python, TypeScript, JavaScript, Go, Rust, Java, C#, Ruby, Kotlin, Swift, PHP, C/C++
