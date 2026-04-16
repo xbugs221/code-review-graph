@@ -1,8 +1,8 @@
-"""Claude Code skills and hooks auto-install.
+"""Platform install helpers for MCP, rules, skills, and lifecycle hooks.
 
-Generates Claude Code agent skill files, hooks configuration, and
-CLAUDE.md integration for seamless code-review-graph usage.
-Also supports multi-platform MCP server installation.
+This module keeps the install-time wiring for supported editors and agents in
+one place. It handles MCP server registration, Claude/Codex hook generation,
+repo instruction injection, and git hook setup for automatic graph refreshes.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import platform
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -40,7 +41,8 @@ PLATFORMS: dict[str, dict[str, Any]] = {
         "name": "Claude Code",
         "config_path": lambda root: root / ".mcp.json",
         "key": "mcpServers",
-        "detect": lambda: True,
+        "detect": lambda: shutil.which("claude") is not None
+        or shutil.which("claude-code") is not None,
         "format": "object",
         "needs_type": True,
     },
@@ -418,7 +420,7 @@ def generate_skills(repo_root: Path, skills_dir: Path | None = None) -> Path:
 
 
 def generate_hooks_config() -> dict[str, Any]:
-    """Return Claude Code hook definitions for .claude/settings.json.
+    """Return Claude Code hook definitions for `.claude/settings.json`.
 
     Hooks use the v1.x+ schema: each entry needs a ``matcher`` and a nested
     ``hooks`` array. Timeouts are in seconds. ``PreCommit`` is not a valid
@@ -452,6 +454,105 @@ def generate_hooks_config() -> dict[str, Any]:
             ],
         }
     }
+
+
+def generate_codex_hooks_config() -> dict[str, Any]:
+    """Return Codex hook definitions for `.codex/hooks.json`.
+
+    Codex hook support is currently gated behind `[features].codex_hooks = true`
+    in `config.toml`, and `PostToolUse` currently only matches `Bash`.
+    """
+    repo_root_expr = '$(git rev-parse --show-toplevel)'
+    return {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "matcher": "startup|resume",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                f'code-review-graph status --repo "{repo_root_expr}"'
+                            ),
+                            "timeout": 10,
+                            "statusMessage": "Checking graph status",
+                        },
+                    ],
+                },
+            ],
+            "PostToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                f'code-review-graph update --skip-flows --repo "{repo_root_expr}"'
+                            ),
+                            "timeout": 30,
+                            "statusMessage": "Updating code review graph",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+
+def _merge_hook_settings(existing: dict[str, Any], hooks_config: dict[str, Any]) -> dict[str, Any]:
+    """Merge hook JSON while preserving unrelated settings and hook entries."""
+    merged = dict(existing)
+    merged_hooks = merged.get("hooks", {})
+    if not isinstance(merged_hooks, dict):
+        merged_hooks = {}
+    new_hooks = hooks_config.get("hooks", {})
+    if not isinstance(new_hooks, dict):
+        new_hooks = {}
+    merged["hooks"] = {**merged_hooks, **new_hooks}
+    return merged
+
+
+def _enable_codex_hooks_feature(config_path: Path) -> None:
+    """Ensure Codex's `[features].codex_hooks = true` is present in TOML."""
+    existing = ""
+    if config_path.exists():
+        existing = config_path.read_text(encoding="utf-8")
+
+    if not existing:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text("[features]\ncodex_hooks = true\n", encoding="utf-8")
+        return
+
+    section_match = re.search(r"(?m)^\[features\]\s*$", existing)
+    if section_match:
+        section_start = section_match.end()
+        next_section_match = re.search(r"(?m)^\[.*\]\s*$", existing[section_start:])
+        section_end = (
+            section_start + next_section_match.start()
+            if next_section_match
+            else len(existing)
+        )
+        section = existing[section_start:section_end]
+        codex_match = re.search(r"(?m)^(\s*codex_hooks\s*=\s*)(true|false)\s*$", section)
+        if codex_match:
+            updated_section = (
+                section[:codex_match.start()]
+                + f"{codex_match.group(1)}true"
+                + section[codex_match.end():]
+            )
+        else:
+            prefix = "\n" if section and not section.startswith("\n") else ""
+            updated_section = f"{prefix}codex_hooks = true\n{section}"
+        updated = existing[:section_start] + updated_section + existing[section_end:]
+    else:
+        suffix = existing if existing.endswith("\n") else existing + "\n"
+        if not suffix.endswith("\n\n"):
+            suffix += "\n"
+        updated = suffix + "[features]\ncodex_hooks = true\n"
+
+    if updated != existing:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(updated, encoding="utf-8")
 
 
 def install_git_hook(repo_root: Path) -> Path | None:
@@ -492,8 +593,45 @@ fi
     return hook_path
 
 
+def install_post_commit_hook(repo_root: Path) -> Path | None:
+    """Install a git post-commit hook that refreshes the graph after each commit."""
+    script = """\
+#!/bin/sh
+# Installed by code-review-graph. Remove this file to disable post-commit graph updates.
+if command -v code-review-graph >/dev/null 2>&1; then
+    REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+    if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+        code-review-graph update --skip-flows --repo "$REPO_ROOT" || true
+    else
+        code-review-graph build --skip-flows --repo "$REPO_ROOT" || true
+    fi
+fi
+"""
+    marker = "code-review-graph update --skip-flows --repo"
+
+    git_dir = repo_root / ".git"
+    if not git_dir.is_dir():
+        logger.warning("No .git directory found at %s — skipping git hook install.", repo_root)
+        return None
+
+    hook_path = git_dir / "hooks" / "post-commit"
+    hook_path.parent.mkdir(exist_ok=True)
+
+    if hook_path.exists():
+        existing = hook_path.read_text(encoding="utf-8")
+        if marker in existing:
+            return hook_path
+        hook_path.write_text(existing.rstrip("\n") + "\n" + script, encoding="utf-8")
+    else:
+        hook_path.write_text(script, encoding="utf-8")
+
+    hook_path.chmod(0o755)
+    logger.info("Wrote git post-commit hook: %s", hook_path)
+    return hook_path
+
+
 def install_hooks(repo_root: Path) -> None:
-    """Write hooks config to .claude/settings.json.
+    """Write Claude Code hooks config to `.claude/settings.json`.
 
     Merges with existing settings if present, preserving non-hook
     configuration.
@@ -513,10 +651,32 @@ def install_hooks(repo_root: Path) -> None:
             logger.warning("Could not read existing %s: %s", settings_path, exc)
 
     hooks_config = generate_hooks_config()
-    existing.update(hooks_config)
+    existing = _merge_hook_settings(existing, hooks_config)
 
     settings_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
     logger.info("Wrote hooks config: %s", settings_path)
+
+
+def install_codex_hooks(repo_root: Path) -> None:
+    """Write Codex hooks config to `.codex/hooks.json` and enable the feature flag."""
+    codex_dir = repo_root / ".codex"
+    codex_dir.mkdir(parents=True, exist_ok=True)
+    hooks_path = codex_dir / "hooks.json"
+    config_path = codex_dir / "config.toml"
+
+    existing: dict[str, Any] = {}
+    if hooks_path.exists():
+        try:
+            existing = json.loads(hooks_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Could not read existing %s: %s", hooks_path, exc)
+
+    hooks_config = generate_codex_hooks_config()
+    existing = _merge_hook_settings(existing, hooks_config)
+
+    hooks_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    _enable_codex_hooks_feature(config_path)
+    logger.info("Wrote Codex hooks config: %s", hooks_path)
 
 
 _CLAUDE_MD_SECTION_MARKER = "<!-- code-review-graph MCP tools -->"

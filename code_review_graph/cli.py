@@ -198,24 +198,31 @@ def _handle_init(args: argparse.Namespace) -> None:
     else:
         print(".gitignore already contains .code-review-graph/.")
 
-    # Skills and hooks are installed by default so Claude actually uses the
-    # graph tools proactively.  Use --no-skills / --no-hooks / --no-instructions
-    # to opt out.
+    # Platform extras are installed by default so supported agents can use the
+    # graph proactively. Use --no-skills / --no-hooks / --no-instructions to
+    # opt out.
     skip_skills = getattr(args, "no_skills", False)
     skip_hooks = getattr(args, "no_hooks", False)
     # Legacy: --skills/--hooks/--all still accepted (no-op, everything is default)
 
     from .skills import (
         generate_skills,
+        install_codex_hooks,
         inject_claude_md,
         inject_platform_instructions,
         install_git_hook,
         install_hooks,
+        install_post_commit_hook,
     )
 
-    if not skip_skills:
+    should_install_claude_extras = target == "claude" or "Claude Code" in configured
+    should_install_codex_extras = target == "codex" or "Codex" in configured
+
+    if not skip_skills and should_install_claude_extras:
         skills_dir = generate_skills(repo_root)
         print(f"Generated skills in {skills_dir}")
+    elif not skip_skills and target == "claude":
+        print("Skipped skill generation because Claude Code was not configured.")
 
     # Confirm before writing instruction files (#173). --yes skips the
     # prompt; --no-instructions skips the whole block.
@@ -237,12 +244,18 @@ def _handle_init(args: argparse.Namespace) -> None:
     elif skip_instructions:
         print("Skipped instruction injection (--no-instructions).")
 
-    if not skip_hooks and target in ("claude", "all"):
+    if not skip_hooks and should_install_claude_extras:
         install_hooks(repo_root)
         print(f"Installed hooks in {repo_root / '.claude' / 'settings.json'}")
         git_hook = install_git_hook(repo_root)
         if git_hook:
             print(f"Installed git pre-commit hook in {git_hook}")
+    if not skip_hooks and should_install_codex_extras:
+        install_codex_hooks(repo_root)
+        print(f"Installed hooks in {repo_root / '.codex' / 'hooks.json'}")
+        git_hook = install_post_commit_hook(repo_root)
+        if git_hook:
+            print(f"Installed git post-commit hook in {git_hook}")
 
     print()
     print("Next steps:")
@@ -272,11 +285,11 @@ def main() -> None:
     )
     install_cmd.add_argument(
         "--no-skills", action="store_true",
-        help="Skip generating Claude Code skill files",
+        help="Skip generating platform skill files",
     )
     install_cmd.add_argument(
         "--no-hooks", action="store_true",
-        help="Skip installing Claude Code hooks",
+        help="Skip installing platform hook integrations",
     )
     install_cmd.add_argument(
         "--no-instructions", action="store_true",
@@ -311,11 +324,11 @@ def main() -> None:
     )
     init_cmd.add_argument(
         "--no-skills", action="store_true",
-        help="Skip generating Claude Code skill files",
+        help="Skip generating platform skill files",
     )
     init_cmd.add_argument(
         "--no-hooks", action="store_true",
-        help="Skip installing Claude Code hooks",
+        help="Skip installing platform hook integrations",
     )
     init_cmd.add_argument(
         "--no-instructions", action="store_true",

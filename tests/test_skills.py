@@ -16,12 +16,15 @@ else:  # pragma: no cover - Python 3.10 backport
 from code_review_graph.skills import (
     _CLAUDE_MD_SECTION_MARKER,
     PLATFORMS,
+    generate_codex_hooks_config,
     generate_hooks_config,
     generate_skills,
+    install_codex_hooks,
     inject_claude_md,
     inject_platform_instructions,
     install_git_hook,
     install_hooks,
+    install_post_commit_hook,
     install_platform_configs,
 )
 
@@ -166,6 +169,41 @@ class TestInstallGitHook:
         assert install_git_hook(tmp_path) is None
 
 
+class TestInstallPostCommitHook:
+    def _make_git_repo(self, tmp_path: Path) -> Path:
+        (tmp_path / ".git" / "hooks").mkdir(parents=True)
+        return tmp_path
+
+    def test_creates_executable_post_commit_hook(self, tmp_path):
+        hook_path = install_post_commit_hook(self._make_git_repo(tmp_path))
+        assert hook_path is not None and hook_path.name == "post-commit"
+        assert os.access(hook_path, os.X_OK)
+        content = hook_path.read_text()
+        assert content.startswith("#!/")
+        assert "code-review-graph update --skip-flows --repo" in content
+        assert "code-review-graph build --skip-flows --repo" in content
+
+    def test_appends_to_existing_hook(self, tmp_path):
+        repo = self._make_git_repo(tmp_path)
+        hook_path = repo / ".git" / "hooks" / "post-commit"
+        hook_path.write_text("#!/bin/sh\nexisting-command\n", encoding="utf-8")
+        hook_path.chmod(0o755)
+        install_post_commit_hook(repo)
+        content = hook_path.read_text()
+        assert "existing-command" in content
+        assert "code-review-graph update --skip-flows --repo" in content
+
+    def test_idempotent(self, tmp_path):
+        repo = self._make_git_repo(tmp_path)
+        install_post_commit_hook(repo)
+        install_post_commit_hook(repo)
+        content = (repo / ".git" / "hooks" / "post-commit").read_text()
+        assert content.count("code-review-graph update --skip-flows --repo") == 1
+
+    def test_no_git_dir_returns_none(self, tmp_path):
+        assert install_post_commit_hook(tmp_path) is None
+
+
 class TestInstallHooks:
     def test_creates_settings_file(self, tmp_path):
         install_hooks(tmp_path)
@@ -191,6 +229,69 @@ class TestInstallHooks:
     def test_creates_claude_directory(self, tmp_path):
         install_hooks(tmp_path)
         assert (tmp_path / ".claude").is_dir()
+
+
+class TestGenerateCodexHooksConfig:
+    def test_returns_dict_with_hooks(self):
+        config = generate_codex_hooks_config()
+        assert "hooks" in config
+
+    def test_has_post_tool_use_for_bash(self):
+        config = generate_codex_hooks_config()
+        assert "PostToolUse" in config["hooks"]
+        entry = config["hooks"]["PostToolUse"][0]
+        assert entry["matcher"] == "Bash"
+        inner = entry["hooks"][0]
+        assert inner["type"] == "command"
+        assert "update --skip-flows" in inner["command"]
+        assert inner["statusMessage"] == "Updating code review graph"
+
+    def test_has_session_start(self):
+        config = generate_codex_hooks_config()
+        assert "SessionStart" in config["hooks"]
+        entry = config["hooks"]["SessionStart"][0]
+        assert entry["matcher"] == "startup|resume"
+        inner = entry["hooks"][0]
+        assert inner["type"] == "command"
+        assert "status --repo" in inner["command"]
+
+
+class TestInstallCodexHooks:
+    @_needs_tomllib
+    def test_creates_hooks_file_and_feature_flag(self, tmp_path):
+        install_codex_hooks(tmp_path)
+        hooks_path = tmp_path / ".codex" / "hooks.json"
+        config_path = tmp_path / ".codex" / "config.toml"
+        assert hooks_path.exists()
+        assert config_path.exists()
+        hooks_data = json.loads(hooks_path.read_text())
+        assert "PostToolUse" in hooks_data["hooks"]
+        config_data = tomllib.loads(config_path.read_text())
+        assert config_data["features"]["codex_hooks"] is True
+
+    @_needs_tomllib
+    def test_merges_with_existing_hooks_and_features(self, tmp_path):
+        codex_dir = tmp_path / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "hooks.json").write_text(
+            json.dumps({"customSetting": True, "hooks": {"OtherHook": []}}),
+            encoding="utf-8",
+        )
+        (codex_dir / "config.toml").write_text(
+            "[features]\ncodex_hooks = false\nother_flag = true\n",
+            encoding="utf-8",
+        )
+
+        install_codex_hooks(tmp_path)
+
+        hooks_data = json.loads((codex_dir / "hooks.json").read_text())
+        assert hooks_data["customSetting"] is True
+        assert "OtherHook" in hooks_data["hooks"]
+        assert "PostToolUse" in hooks_data["hooks"]
+
+        config_data = tomllib.loads((codex_dir / "config.toml").read_text())
+        assert config_data["features"]["codex_hooks"] is True
+        assert config_data["features"]["other_flag"] is True
 
 
 class TestInjectClaudeMd:
